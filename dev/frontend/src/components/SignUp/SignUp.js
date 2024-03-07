@@ -43,7 +43,7 @@ const SignUp = () => {
                             'email' : email,
                             'password' : password
                             };
-            axios.post(process.env.REACT_APP_BACKEND_URI+'/api/signUpUser', params)
+            axios.post('http://localhost:8000'+'/api/signUpUser', params)
                 .then(response => {
                 if(response.data==="ok"){
                     console.log("Success")

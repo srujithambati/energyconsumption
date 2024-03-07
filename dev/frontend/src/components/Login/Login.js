@@ -95,7 +95,7 @@ const Login = () => {
                             'email' : email,
                             'password' : password
                             };
-            axios.get(process.env.REACT_APP_BACKEND_URI+'/api/loginUser', {params})
+            axios.get('http://localhost:8000'+'/api/loginUser', {params})
                 .then(response => {
                 if(response.data==="ok"){
                     console.log("Success")
