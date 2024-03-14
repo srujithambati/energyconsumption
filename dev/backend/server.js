@@ -151,7 +151,45 @@ const convertToDate = (dateString) => {
     return null;
 };
 
+const downloadData = (startDate, endDate, email) => {
+    return new Promise((resolve, reject) => {
+        const query = 'SELECT date, start_time, end_time, units, cost FROM upload_testing WHERE date BETWEEN ? AND ? and email= ?';
+        
+        db.query(query, [startDate, endDate, email], (error, results) => {
+            if (error) {
+                return reject(error);
+            }
 
+            // Format the 'date' column in the results
+            const formattedResults = results.map(row => ({
+                ...row,
+                date: format(new Date(row.date), 'yyyy-MM-dd') // format date to 'YYYY-MM-DD'
+            }));
+
+            // Ensure there's a directory to save the file
+            const dirPath = path.join(__dirname, 'downloads');
+            if (!fs.existsSync(dirPath)){
+                fs.mkdirSync(dirPath);
+            }
+
+            // Format the dates for the file name
+            const formattedStartDate = format(new Date(startDate), 'yyyyMMdd');
+            const formattedEndDate = format(new Date(endDate), 'yyyyMMdd');
+            
+            // Set the path for the CSV file
+            const filePath = path.join(dirPath, `data_${formattedStartDate}_to_${formattedEndDate}.csv`);
+
+            // Create a writable stream and use fast-csv to format and write the data
+            const ws = fs.createWriteStream(filePath);
+            fastcsv
+                .write(formattedResults, { headers: true })
+                .on('finish', () => {
+                    resolve(filePath);
+                })
+                .pipe(ws);
+        });
+    });
+};
 
 // Export the function if necessary
 module.exports = {
