@@ -57,7 +57,7 @@ const SignUp = () => {
                 }
                 else{
                     alert(response.data)
-                    console.log("Fail")
+                    console.log(response.data)
                     setFirstName("")
                     setLastName("")
                     setEmail("")

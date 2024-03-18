@@ -64,7 +64,22 @@ app.post("/api/signUpUser",(req,res)=>{
     });
 });
 
-
+app.get('/api/getFileName', (req,res) => {
+    const {email} = req.query;
+    // console.log(JSON.stringify(email))
+    const query = "select file_name from user_data_tracker where processed=0 and email='"+email+"' limit 1;";
+    // console.log(query)
+    db.query(query,(error,result)=>{
+        if(error==null){
+            // console.log(result.data)
+            res.send(result);
+        }
+        else{
+            res.send("An error has occured");
+            console.log(error)
+        }
+    });
+});
 
 app.get('/api/loginUser', (req,res) => {
     // console.log(req.query);
@@ -96,8 +111,113 @@ const storage = new Storage({ keyFilename: 'credentials.json' });
 const bucket = storage.bucket(process.env.GOOGLE_BUCKET_NAME);
 const upload = multer({ storage: multer.memoryStorage() });
 
+app.post('/api/upload', upload.single('file'), (req, res) => {
+    if (!req.file) {
+        return res.status(400).send('No file uploaded.');
+    }
 
+    // Extract user data from the request body
+    const { email } = req.body;
 
+    // Upload file to Google Cloud Storage
+    const blob = bucket.file(req.file.originalname);
+    const blobStream = blob.createWriteStream();
+
+    blobStream.on('error', err => {
+        console.error(err);
+        return res.status(500).send('Error uploading file');
+    });
+
+    blobStream.on('finish', () => {
+        const publicUrl = `https://storage.googleapis.com/${bucket.name}/${blob.name}`;
+        const uploadTime = new Date().toISOString().slice(0, 19).replace('T', ' ');
+
+        const query = `
+            INSERT INTO user_data_tracker (email, file_name, upload_time, file_name_raw)
+            VALUES (?, ?, ?, ?)
+        `;
+        const values = [email, blob.name, uploadTime, req.file.originalname];
+
+        db.query(query, values, (dbError, results) => {
+            if (dbError) {
+                console.error('Database error:', dbError);
+                return res.status(500).send('Error updating database');
+            }
+            res.status(200).send({ message: 'File uploaded and database updated', url: publicUrl });
+        });
+    });
+
+    blobStream.end(req.file.buffer);
+});
+
+app.post('/api/process-files', (req, res) => {
+    const { email,file_name } = req.body;
+
+    // Construct the command with the email parameter
+    const pythonCommand = `python ..//services/process_data.py --email ${email} --file ${file_name}`;
+    // console.log(pythonCommand)
+    exec(pythonCommand, (error, stdout, stderr) => {
+        if (error) {
+            console.error(`exec error: ${error}`);
+            return res.status(500).send('Error processing files');
+        }
+        console.log(`stdout: ${stdout}`);
+        console.error(`stderr: ${stderr}`);
+        const query=`update  user_data_tracker set processed=1 where email='${email}' and file_name='${file_name}'`;
+        console.log(query)
+        db.query(query,(error,result)=>{
+            // res.send(JSON.stringify(result));
+            if(error){
+                console.error(`exec error: ${error}`);
+                return res.status(500).send('Error processing files');
+            }
+            res.send('Files processed successfully');
+        });
+    });
+});
+
+app.get('/api/data', (req, res) => {
+    const { start, end, type, email } = req.query;
+
+    // Convert UTC dates to Pacific Time and format to date-only strings
+    const localStart = moment(start).tz('America/Los_Angeles').format('YYYY-MM-DD');
+    const localEnd = moment(end).tz('America/Los_Angeles').format('YYYY-MM-DD');
+
+    // console.log(`Querying from ${localStart} to ${localEnd}`);
+
+    let selectField = type === 'usage' ? 'units' : 'cost';
+    const query = `SELECT date,start_time, ${selectField} AS value FROM upload_testing WHERE date >= ? AND date <= ? and email='${email}'`;
+
+    db.query(query, [localStart, localEnd], (error, results) => {
+        if (error) {
+            console.error('Database query error:', error);
+            return res.status(500).send('Error fetching data');
+        }
+
+        let data = {
+            Morning: 0,
+            Afternoon: 0,
+            Evening: 0,
+            Night: 0
+        };
+
+        results.forEach(row => {
+            const hour = parseInt(row.start_time.split(':')[0]); // Assuming start_time format is 'HH:MM'
+
+            if (hour >= 6 && hour < 12) {
+                data.Morning += parseFloat(row.value);
+            } else if (hour >= 12 && hour < 16) {
+                data.Afternoon += parseFloat(row.value);
+            } else if (hour >= 16 && hour < 20) {
+                data.Evening += parseFloat(row.value);
+            } else {
+                data.Night += parseFloat(row.value);
+            }
+        });
+
+        res.json(data);
+    });
+});
 
 app.get('/api/available-dates', (req, res) => {
     let {email} = req.query;
@@ -111,9 +231,170 @@ app.get('/api/available-dates', (req, res) => {
     });
 });
 
+app.get('/api/bar-data', (req, res) => {
+    const { start, end, type, email} = req.query;
+    let selectField = type === 'usage' ? 'units' : 'cost';
+
+    const localStart = moment(start).tz('America/Los_Angeles').format('YYYY-MM-DD');
+    const localEnd = moment(end).tz('America/Los_Angeles').format('YYYY-MM-DD');
+
+    const query = `SELECT date, start_time, ${selectField} AS value FROM upload_testing  WHERE date >= ? AND date <= ? and email='${email}'`;
+
+    db.query(query, [localStart, localEnd], (error, results) => {
+        if (error) {
+            console.error('Database query error:', error);
+            return res.status(500).send('Error fetching data');
+        }
+
+        const barData = {};
+
+        results.forEach(row => {
+            const date = row.date;
+            const hour = parseInt(row.start_time.split(':')[0]);
+            let timeOfDay;
+
+            if (hour >= 6 && hour < 12) {
+                timeOfDay = 'Morning';
+            } else if (hour >= 12 && hour < 16) {
+                timeOfDay = 'Afternoon';
+            } else if (hour >= 16 && hour < 20) { // Adjusted condition for 'Evening'
+                timeOfDay = 'Evening';
+            } else {
+                timeOfDay = 'Night'; // Adjusted condition for 'Night'
+            }
+
+            barData[date] = barData[date] || { Morning: 0, Afternoon: 0, Evening: 0, Night: 0 };
+            barData[date][timeOfDay] += parseFloat(row.value);
+        });
+        res.json(barData);
+    });
+});
+
+app.get('/api/scatter-data', (req, res) => {
+    const { start, end, email } = req.query;
+
+    const startDate = new Date(start).toISOString().split('T')[0];
+    const endDate = new Date(end).toISOString().split('T')[0];
+
+    const query = `SELECT date, units, cost, start_time FROM upload_testing WHERE date >= ? AND date <= ? and email='${email}'`;
+
+    db.query(query, [startDate, endDate], (error, results) => {
+        if (error) {
+            console.error('Database query error:', error);
+            return res.status(500).send('Error fetching scatter data');
+        }
+
+        const scatterData = results.map(row => {
+            const hour = new Date(`1970-01-01T${row.start_time}`).getHours();
+            let timeOfDay;
+
+            if (hour >= 6 && hour < 12) {
+                timeOfDay = 'Morning';
+            } else if (hour >= 12 && hour < 16) {
+                timeOfDay = 'Afternoon';
+            } else if (hour >= 16 && hour < 20) {
+                timeOfDay = 'Evening';
+            } else {
+                timeOfDay = 'Night';
+            }
+
+            return {
+                units: row.units,
+                cost: row.cost,
+                date: row.date,
+                timeOfDay: timeOfDay
+            };
+        });
+
+        res.json(scatterData);
+    });
+});
+
+app.get('/api/heatmap-data', (req, res) => {
+    const { type, start, end, email } = req.query; // 'type' is 'units' or 'cost'
+    let selectField = type === 'usage' ? 'units' : 'cost';
+    const startDate = new Date(start).toISOString().split('T')[0];
+    const endDate = new Date(end).toISOString().split('T')[0];
+
+    // Aggregate data by hour
+    // Extract the hour from start_time and sum up the 'units' or 'cost' for each hour of each day
+    const query = `
+        SELECT 
+            date, 
+            HOUR(start_time) as hour, 
+            SUM(${selectField}) as value 
+        FROM upload_testing 
+        WHERE date >= ? AND date <= ? and email='${email}'
+        GROUP BY date, hour
+    `;
+
+    db.query(query, [startDate, endDate], (error, results) => {
+        if (error) {
+            console.error('Error in /api/heatmap-data:', error);
+            res.status(500).send('Internal Server Error');
+            return;
+        }
+
+        res.json(results);
+    });
+});
 
 
+app.post('/chat', async (req, res) => {
+    const userMessage = req.body.message;
+    const email = req.body.email;
+    const intent = await detectIntent(userMessage);
 
+    if (intent === 'ROUTE') {
+        return res.json({ message: 'ROUTE' });
+    } else if (intent === 'DATA') {
+        try {
+            const summaryData = await getDataSummary(email);
+            const openAiResponse = await openAiSummary(userMessage, summaryData);
+            res.json({ message: openAiResponse });
+        } catch (error) {
+            console.error('Error processing data summary:', error);
+            res.status(500).send('Error processing data summary');
+        }
+    } else if (intent.toLowerCase().includes('download')) {
+        const { start, end } = extractDates(intent);
+        if (start && end) {
+            const downloadLink = `/download-data?startDate=${start}&endDate=${end}&email=${email}`;
+            return res.json({ message: 'DOWNLOAD', startDate:start, endDate:end, email:email });
+        } else {
+            return res.json({ message: "I couldn't find the dates you mentioned. Could you please provide the start and end dates for the download?" });
+        }
+    } else {
+        res.json({ message: "I'm not sure what you're asking for. Can you please clarify if you want to navigate the website, need information on data, or wish to download something?" });
+    }
+});
+
+app.get('/download-data', (req, res) => {
+    const { startDate, endDate, email } = req.query;
+    
+    const query = 'SELECT DATE_FORMAT(date, "%Y-%m-%d") AS date, start_time, end_time, units, cost FROM upload_testing WHERE date BETWEEN ? AND ? and email=?';
+    
+    db.query(query, [startDate, endDate, email], (error, results) => {
+      if (error) {
+        console.error('Database query error:', error);
+        return res.status(500).send('Error fetching data');
+      }
+  
+      try {
+        // Convert results to CSV
+        const json2csvParser = new Parser();
+        const csvData = json2csvParser.parse(results);
+  
+        // Set headers to prompt download with a filename
+        res.header('Content-Type', 'text/csv');
+        res.attachment(`data_${startDate}_${endDate}.csv`);
+        res.send(csvData);
+      } catch (err) {
+        console.error('Error parsing CSV:', err);
+        return res.status(500).send('Error processing data');
+      }
+    });
+  });
 
 const extractDates = (message) => {
     // Regex pattern to match YYYY-MM-DD and MM/DD/YYYY formats
