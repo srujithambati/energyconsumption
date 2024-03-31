@@ -154,15 +154,15 @@ app.post('/api/process-files', (req, res) => {
     const { email,file_name } = req.body;
 
     // Construct the command with the email parameter
-    const pythonCommand = `python ..//services/process_data.py --email ${email} --file ${file_name}`;
+    const pythonCommand = `python3 ..//services/process_data.py --email ${email} --file ${file_name}`;
     // console.log(pythonCommand)
     exec(pythonCommand, (error, stdout, stderr) => {
         if (error) {
             console.error(`exec error: ${error}`);
             return res.status(500).send('Error processing files');
         }
-        console.log(`stdout: ${stdout}`);
-        console.error(`stderr: ${stderr}`);
+        // console.log(`stdout: ${stdout}`);
+        // console.error(`stderr: ${stderr}`);
         const query=`update  user_data_tracker set processed=1 where email='${email}' and file_name='${file_name}'`;
         console.log(query)
         db.query(query,(error,result)=>{
@@ -502,10 +502,11 @@ const detectIntent = async (msg) => {
     let intent = [];
     intent.push({
         role: "system",
-        content: "You are here to detect intent of the user, The intent is of only three types." +
+        content: "You are here to detect intent of the user, The intent is of only four types." +
         "1. If the user wants to go to, or asks you to route or for navigation to a different page then you must always respond with 'ROUTE' only" +
-        "2. If the user shows an intent to download the data you must respond with 'DOWNLOAD from <from-date> to <to-date>', the date should always be in the format of YYYY-MM-DD if year is not give consider the year to be 2023 only" +
-        "3. If the user asks for just information from the system you must always respond with 'DATA' only"
+        "2. If the user shows an intent to download the data you must respond with 'DOWNLOAD from <from-date> to <to-date>', the date should always be in the format of YYYY-MM-DD if year is not give consider the year to be 2024 only" +
+        "3. If the user asks for just information from the system you must always respond with 'DATA' only" +
+        "4. If any questions are not related to the 'DATA' please respond that you are chatbot which is designed for PGE Bill Analysis only and do not answer any random questions"
     });
     intent.push({
         role: "user",
@@ -513,7 +514,8 @@ const detectIntent = async (msg) => {
     });
     try {
         const response = await axios.post('https://api.openai.com/v1/chat/completions', {
-            model: 'gpt-3.5-turbo',
+            // model: 'gpt-3.5-turbo',
+            model: 'gpt-4',
             max_tokens: 150,
             temperature: 0.5,
             messages: intent,

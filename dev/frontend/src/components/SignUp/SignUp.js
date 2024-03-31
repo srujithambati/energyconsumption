@@ -43,7 +43,7 @@ const SignUp = () => {
                             'email' : email,
                             'password' : password
                             };
-            axios.post('http://localhost:8000'+'/api/signUpUser', params)
+            axios.post(process.env.REACT_APP_BACKEND_URI+'/api/signUpUser', params)
                 .then(response => {
                 if(response.data==="ok"){
                     console.log("Success")
@@ -57,7 +57,7 @@ const SignUp = () => {
                 }
                 else{
                     alert(response.data)
-                    console.log(response.data)
+                    console.log("Fail")
                     setFirstName("")
                     setLastName("")
                     setEmail("")
