@@ -514,8 +514,8 @@ const detectIntent = async (msg) => {
     });
     try {
         const response = await axios.post('https://api.openai.com/v1/chat/completions', {
-            // model: 'gpt-3.5-turbo',
-            model: 'gpt-4',
+            model: 'gpt-3.5-turbo',
+            // model: 'gpt-4',
             max_tokens: 150,
             temperature: 0.5,
             messages: intent,
