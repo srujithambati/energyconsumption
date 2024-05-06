@@ -5,6 +5,9 @@ Nithish Reddy and Srujith Ambati
 
 Git repo link: https://github.com/srujithambati/energyconsumption.git
 
+Deployment: http://13.234.115.240:3000/
+
+
 
 
 Project Description:
